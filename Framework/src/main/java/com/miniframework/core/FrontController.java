@@ -36,6 +36,12 @@ public class FrontController extends HttpServlet {
 
     private static final Set<String> SUPPORTED_VERBS = Set.of("GET", "POST");
 
+    /** Clé de session où l'application stocke l'utilisateur connecté. */
+    public static final String SESSION_USER_KEY = "user";
+
+    /** Clé de session où l'application stocke le rôle de l'utilisateur connecté. */
+    public static final String SESSION_ROLE_KEY = "role";
+
     private static final Pattern PATH_VAR = Pattern.compile("\\{([^/{}]+)}");
 
     /** Indice maximal accepté dans une liste (ex : notes[1000]) : évite les allocations géantes. */
@@ -531,7 +537,9 @@ public class FrontController extends HttpServlet {
         Method method = mapping.getMethod();
         String label = mapping.getControllerClass().getSimpleName() + "." + method.getName() + "()";
 
-        
+        if (!checkAuth(mapping, request, response)) {
+            return;
+        }
 
         Object[] args;
         try {
@@ -576,6 +584,48 @@ public class FrontController extends HttpServlet {
         renderResult(mapping, result, request, response);
     }
 
+    // ------------------------------------------------------------------
+    // Autorisation (Sprint 10:Simple, 10-bis:Rôle)
+    // ------------------------------------------------------------------
+
+    /**
+     * Retourne true si la requête peut continuer, false si une réponse 401 ou 403 a déjà été écrite.
+     * - 401 : aucun utilisateur en session ;
+     * - 403 : utilisateur connecté, mais rôle absent ou différent du rôle exigé.
+     * getSession(false) : ne crée PAS de session juste pour constater qu'elle est vide.
+     */
+    private boolean checkAuth(MappingInfo mapping, HttpServletRequest request,
+                              HttpServletResponse response) throws IOException {
+        // L'@Auth de la méthode remplace celle de la classe
+        Auth auth = mapping.getMethod().getAnnotation(Auth.class);
+        if (auth == null) {
+            auth = mapping.getControllerClass().getAnnotation(Auth.class);
+        }
+        if (auth == null) {
+            return true; // route publique
+        }
+
+        HttpSession session = request.getSession(false);
+        if (session == null || session.getAttribute(SESSION_USER_KEY) == null) {
+            writeHtml(response, HttpServletResponse.SC_UNAUTHORIZED, "401 - Non authentifié",
+                    "<p>Cette route nécessite une connexion.</p>");
+            return false;
+        }
+
+        String roleExige = auth.role();
+        if (roleExige.isEmpty()) {
+            return true; // connecté suffit
+        }
+
+        Object roleSession = session.getAttribute(SESSION_ROLE_KEY);
+        if (roleExige.equals(roleSession)) {
+            return true;
+        }
+
+        writeHtml(response, HttpServletResponse.SC_FORBIDDEN, "403 - Accès interdit",
+                "<p>Cette route exige le rôle <b>" + escape(roleExige) + "</b>.</p>");
+        return false;
+    }
 
     /**
      * Choisit le rendu selon la valeur retournée par le contrôleur :
