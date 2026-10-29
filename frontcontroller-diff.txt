@@ -1,0 +1,91 @@
+﻿diff --git "a/..\\miniframework-reference\\Framework\\src\\main\\java\\com\\miniframework\\core\\FrontController.java" "b/.\\Framework\\src\\main\\java\\com\\miniframework\\core\\FrontController.java"
+index 8df03bf..95ed608 100644
+--- "a/..\\miniframework-reference\\Framework\\src\\main\\java\\com\\miniframework\\core\\FrontController.java"
++++ "b/.\\Framework\\src\\main\\java\\com\\miniframework\\core\\FrontController.java"
+@@ -1,11 +1,6 @@
+ package com.miniframework.core;
+ 
+-import com.miniframework.annotations.GetMapping;
+-import com.miniframework.annotations.Param;
+-import com.miniframework.annotations.PathVariable;
+-import com.miniframework.annotations.PostMapping;
+-import com.miniframework.annotations.RequestMapping;
+-import com.miniframework.annotations.RestController;
++import com.miniframework.annotations.*;
+ import com.miniframework.model.ModelView;
+ import com.miniframework.model.UploadedFile;
+ import com.miniframework.util.AppConfig;
+@@ -41,6 +36,12 @@ public class FrontController extends HttpServlet {
+ 
+     private static final Set<String> SUPPORTED_VERBS = Set.of("GET", "POST");
+ 
++    /** Cl├® de session o├╣ l'application stocke l'utilisateur connect├®. */
++    public static final String SESSION_USER_KEY = "user";
++
++    /** Cl├® de session o├╣ l'application stocke le r├┤le de l'utilisateur connect├®. */
++    public static final String SESSION_ROLE_KEY = "role";
++
+     private static final Pattern PATH_VAR = Pattern.compile("\\{([^/{}]+)}");
+ 
+     /** Indice maximal accept├® dans une liste (ex : notes[1000]) : ├®vite les allocations g├®antes. */
+@@ -536,6 +537,10 @@ public class FrontController extends HttpServlet {
+         Method method = mapping.getMethod();
+         String label = mapping.getControllerClass().getSimpleName() + "." + method.getName() + "()";
+ 
++        if (!checkAuth(mapping, request, response)) {
++            return;
++        }
++
+         Object[] args;
+         try {
+             args = buildArgs(method, request, pathVars);
+@@ -579,6 +584,49 @@ public class FrontController extends HttpServlet {
+         renderResult(mapping, result, request, response);
+     }
+ 
++    // ------------------------------------------------------------------
++    // Autorisation (Sprint 10:Simple, 10-bis:R├┤le)
++    // ------------------------------------------------------------------
++
++    /**
++     * Retourne true si la requ├¬te peut continuer, false si une r├®ponse 401 ou 403 a d├®j├á ├®t├® ├®crite.
++     * - 401 : aucun utilisateur en session ;
++     * - 403 : utilisateur connect├®, mais r├┤le absent ou diff├®rent du r├┤le exig├®.
++     * getSession(false) : ne cr├®e PAS de session juste pour constater qu'elle est vide.
++     */
++    private boolean checkAuth(MappingInfo mapping, HttpServletRequest request,
++                              HttpServletResponse response) throws IOException {
++        // L'@Auth de la m├®thode remplace celle de la classe
++        Auth auth = mapping.getMethod().getAnnotation(Auth.class);
++        if (auth == null) {
++            auth = mapping.getControllerClass().getAnnotation(Auth.class);
++        }
++        if (auth == null) {
++            return true; // route publique
++        }
++
++        HttpSession session = request.getSession(false);
++        if (session == null || session.getAttribute(SESSION_USER_KEY) == null) {
++            writeHtml(response, HttpServletResponse.SC_UNAUTHORIZED, "401 - Non authentifi├®",
++                    "<p>Cette route n├®cessite une connexion.</p>");
++            return false;
++        }
++
++        String roleExige = auth.role();
++        if (roleExige.isEmpty()) {
++            return true; // connect├® suffit
++        }
++
++        Object roleSession = session.getAttribute(SESSION_ROLE_KEY);
++        if (roleExige.equals(roleSession)) {
++            return true;
++        }
++
++        writeHtml(response, HttpServletResponse.SC_FORBIDDEN, "403 - Acc├¿s interdit",
++                "<p>Cette route exige le r├┤le <b>" + escape(roleExige) + "</b>.</p>");
++        return false;
++    }
++
+     /**
+      * Choisit le rendu selon la valeur retourn├®e par le contr├┤leur :
+      * - void / null  -> 200 sans corps ;

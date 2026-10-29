@@ -1,0 +1,20 @@
+# Artefacts générés par deploy.sh
+build/
+
+# IntelliJ
+.idea/
+*.iml
+out/
+
+
+# Fichiers compilés Java
+*.class
+*.jar
+
+# Fichiers temporaires et système
+*.log
+.DS_Store
+Thumbs.db
+
+# Configuration VS Code locale
+.vscode/
